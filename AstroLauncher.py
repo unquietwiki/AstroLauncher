@@ -15,7 +15,6 @@ import subprocess
 import sys
 import time
 import zipfile
-from distutils import dir_util
 from threading import Thread
 
 import psutil
@@ -499,7 +498,7 @@ class AstroLauncher():
 
             if update_downloaded:
                 open("update.p", "wb").write(b"transfer")
-                dir_util.copy_tree(updateLocation, self.astroPath)
+                shutil.copytree(updateLocation, self.astroPath, dirs_exist_ok=True)
                 open("update.p", "wb").write(b"complete")
 
             cur_version = "0.0"
@@ -895,7 +894,8 @@ class AstroLauncher():
         ws = AstroWebServer.WebServer(self)
 
         def start_WebServerThread():
-            if sys.version_info.minor > 7:
+            # Python 3.8+ requires WindowsSelectorEventLoopPolicy for proper asyncio behavior on Windows
+            if sys.version_info >= (3, 8):
                 asyncio.set_event_loop_policy(
                     asyncio.WindowsSelectorEventLoopPolicy())
             asyncio.set_event_loop(asyncio.new_event_loop())
@@ -913,7 +913,8 @@ class AstroLauncher():
 
     def start_InfoLoop(self):
         def start_InfoLoopThread(self):
-            if sys.version_info.minor > 7:
+            # Python 3.8+ requires WindowsSelectorEventLoopPolicy for proper asyncio behavior on Windows
+            if sys.version_info >= (3, 8):
                 asyncio.set_event_loop_policy(
                     asyncio.WindowsSelectorEventLoopPolicy())
             asyncio.set_event_loop(asyncio.new_event_loop())
