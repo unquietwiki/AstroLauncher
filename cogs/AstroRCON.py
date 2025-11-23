@@ -2,6 +2,7 @@
 
 import json
 import socket
+import threading
 import time
 from contextlib import contextmanager
 
@@ -14,19 +15,15 @@ class AstroRCON():
         self.DS = DedicatedServer
         self.connected = False
         self.socket = None
-        self.lock = False
+        self.lock = threading.Lock()
 
     @contextmanager
     def lockRcon(self):
+        self.lock.acquire()
         try:
-            while self.lock:
-                pass
-            self.lock = True
             yield self
-        except:
-            self.lock = False
         finally:
-            self.lock = False
+            self.lock.release()
 
     def run(self):
         # pylint: disable=protected-access
@@ -35,12 +32,12 @@ class AstroRCON():
         if not self.connected:
             try:
                 self.socket.send(b"u up?")
-            except:  # Exception as e:
+            except (OSError, socket.error):
                 self.connected = False
                 #print("no response, reconnecting..")
                 try:
                     self.connectSocket()
-                except:  # Exception as er:
+                except (OSError, socket.error):
                     pass
                 #print(f"3 {e}")
 
@@ -96,8 +93,8 @@ class AstroRCON():
                 parsedData = AstroRCON.parseData(rawdata)
                 # pprint(parsedData)
                 return parsedData
-        except:  # Exception as e:
-            # print(e)
+        except Exception as e:
+            print(f"Error setting player category: {e}")
             return None
 
     def DSServerStatistics(self):
@@ -122,11 +119,11 @@ class AstroRCON():
                 #rawdata = AstroRCON.recvall(s.socket)
                 #parsedData = AstroRCON.parseData(rawdata)
                 # pprint(parsedData)
-                
+
                 time.sleep(1.1)
                 return  # parsedData
-        except:  # Exception as e:
-            # print(e)
+        except Exception as e:
+            print(f"Error saving game: {e}")
             return None
 
     def DSSetDenyUnlisted(self, state):
@@ -138,19 +135,20 @@ class AstroRCON():
                 parsedData = AstroRCON.parseData(rawdata)
                 # pprint(parsedData)
                 return parsedData
-        except:  # Exception as e:
-            # print(e)
+        except Exception as e:
+            print(f"Error setting deny unlisted: {e}")
             return None
 
     def DSServerShutdown(self):
         try:
-            self.socket.sendall(b"DSServerShutdown\n")
-            #rawdata = AstroRCON.recvall(self.socket)
-            #parsedData = AstroRCON.parseData(rawdata)
-            # pprint(parsedData)
-            return  # parsedData
-        except:  # Exception as e:
-            # print(e)
+            with self.lockRcon() as s:
+                s.socket.sendall(b"DSServerShutdown\n")
+                #rawdata = AstroRCON.recvall(s.socket)
+                #parsedData = AstroRCON.parseData(rawdata)
+                # pprint(parsedData)
+                return  # parsedData
+        except Exception as e:
+            print(f"Error shutting down server: {e}")
             return None
 
     def DSListGames(self):
@@ -171,8 +169,8 @@ class AstroRCON():
                 s.socket.sendall(b"DSNewGame\n")
             # pprint(parsedData)
             return True
-        except:  # Exception as e:
-            # print(e)
+        except Exception as e:
+            print(f"Error starting new game: {e}")
             return None
 
     def DSLoadGame(self, name):
@@ -183,8 +181,8 @@ class AstroRCON():
                 parsedData = AstroRCON.parseData(rawdata)
                 # pprint(parsedData)
                 return parsedData
-        except:  # Exception as e:
-            # print(e)
+        except Exception as e:
+            print(f"Error loading game: {e}")
             return None
 
     @staticmethod
@@ -199,8 +197,8 @@ class AstroRCON():
                     # either 0 or end of data
                     break
             return data
-        except:  # ConnectionResetError as e:
-            #print(f"recvall Error {e}")
+        except (OSError, socket.error) as e:
+            print(f"recvall Error {e}")
             return None
 
     @staticmethod
@@ -211,6 +209,6 @@ class AstroRCON():
                 data = json.loads(rawdata.decode())
                 return data
             return None
-        except:  # Exception as e:
-            #print(f"RCON Parse Error {e}")
+        except (json.JSONDecodeError, UnicodeDecodeError, AttributeError) as e:
+            print(f"RCON Parse Error {e}")
             return rawdata
