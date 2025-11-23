@@ -1,5 +1,4 @@
 import os
-import signal
 import subprocess
 import sys
 import time
@@ -24,11 +23,26 @@ class AstroDaemon():
                                 subprocess.CREATE_NEW_PROCESS_GROUP)
 
     @staticmethod
-    def daemon(laucherPID, consolePID):
-        while(psutil.pid_exists(int(laucherPID)) and psutil.pid_exists(int(consolePID))):
+    def daemon(launcherPID, consolePID):
+        while(psutil.pid_exists(int(launcherPID)) and psutil.pid_exists(int(consolePID))):
             time.sleep(0.5)
         try:
-            for child in psutil.Process(int(consolePID)).children():
-                os.kill(child.pid, signal.CTRL_C_EVENT)
-        except KeyboardInterrupt as e:
-            print(e)
+            process = psutil.Process(int(consolePID))
+            for child in process.children(recursive=True):
+                try:
+                    child.terminate()
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+
+            # Wait for graceful termination
+            psutil.wait_procs(process.children(recursive=True), timeout=3)
+
+            # Force kill any remaining processes
+            for child in process.children(recursive=True):
+                try:
+                    if child.is_running():
+                        child.kill()
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+        except (psutil.NoSuchProcess, psutil.AccessDenied, OSError) as e:
+            print(f"Error terminating child processes: {e}")
