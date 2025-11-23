@@ -1,3 +1,4 @@
+# pylint: disable=invalid-name,line-too-long,missing-function-docstring,abstract-method,attribute-defined-outside-init,no-member
 
 import datetime
 import hashlib
@@ -18,8 +19,6 @@ from AstroLauncher import AstroLauncher
 from cogs import UIModules
 from cogs.AstroLogging import AstroLogging
 from cogs.MultiConfig import MultiConfig
-
-# pylint: disable=abstract-method,attribute-defined-outside-init,no-member
 
 
 class WebServer(tornado.web.Application):

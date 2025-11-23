@@ -1,4 +1,4 @@
-
+# pylint: disable=invalid-name,line-too-long,missing-function-docstring
 
 import gzip
 import logging

@@ -1,3 +1,5 @@
+# pylint: disable=invalid-name,line-too-long,missing-function-docstring
+
 import os
 import subprocess
 import sys

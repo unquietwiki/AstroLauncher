@@ -1,15 +1,16 @@
+# pylint: disable=invalid-name,line-too-long,missing-function-docstring,no-member
+
 import json
 import time
 
 from cogs.AstroLogging import AstroLogging
 from cogs.utils import AstroRequests
 
+
 base_headers = {'Content-Type': 'application/json; charset=utf-8',
                 "X-PlayFabSDK": "UE4MKPL-1.49.201027",
                 "User-Agent": "Astro/++UE4+Release-4.23-CL-0 Windows/10.0.19042.1.256.64bit",
                 }
-# pylint: disable=no-member
-
 
 def generate_XAUTH(serverGUID):
     url = f"https://5EA1.playfabapi.com/Client/LoginWithCustomID?sdk={base_headers['X-PlayFabSDK']}"

@@ -1,3 +1,4 @@
+# pylint: disable=invalid-name,line-too-long,missing-function-docstring
 
 import json
 import ntpath
