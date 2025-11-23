@@ -141,11 +141,12 @@ class WebServer(tornado.web.Application):
                     for _, conn in self.connections.items():
                         try:
                             conn[1].check_data_change(force=force)
-                        except:
-                            pass
+                        except (AttributeError, RuntimeError) as e:
+                            AstroLogging.logPrint(f"Error checking WebSocket data change: {e}", "warning")
                     self.iterTimer = datetime.datetime.now()
-        except:
-            pass
+        except RuntimeError as e:
+            # Dictionary changed size during iteration
+            AstroLogging.logPrint(f"Error iterating WebSocket connections: {e}", "warning")
 
     @staticmethod
     def get_client_id(handler):
@@ -176,9 +177,7 @@ class WebServer(tornado.web.Application):
         logs = '\n'.join(groups[-n:])
         rconReady = False
         if dedicatedServer.AstroRCON:
-            rconReady = dedicatedServer.AstroRCON.connected
-        
-        
+            rconReady = dedicatedServer.AstroRCON.connected        
         s = dedicatedServer.settings
         stats = None
         if dedicatedServer.DSServerStats:
@@ -274,8 +273,8 @@ class APIWebSocket(tornado.websocket.WebSocketHandler):
         try:
             if self.cID:
                 del self.WS.connections[self.cID]
-        except:
-            pass
+        except (KeyError, AttributeError) as e:
+            AstroLogging.logPrint(f"Error removing WebSocket connection: {e}", "debug")
         # print("close")
         # pprint(self.WS.connections)
         self.check_data_change(force=True)
@@ -511,7 +510,8 @@ class PlayerRequestHandler(BaseHandler):
         data = tornado.escape.json_decode(self.request.body)
         try:
             players = self.launcher.DedicatedServer.players['playerInfo']
-        except:
+        except (KeyError, TypeError, AttributeError):
+            self.write({"message": "Player info not available"})
             return
         playerGUID = None
         playerName = None
@@ -530,7 +530,8 @@ class PlayerRequestHandler(BaseHandler):
             try:
                 player = [x for x in players if x['playerName']
                           == playerName][0]
-            except:
+            except (IndexError, KeyError):
+                # Player not found in list
                 pass
         if playerGUID is None and playerName is None:
             self.write({"message": "Missing variable! (name or guid)"})
