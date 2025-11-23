@@ -1,9 +1,10 @@
+# pylint: disable=invalid-name,line-too-long,missing-function-docstring
+
 import argparse
 import asyncio
 import atexit
 import ctypes
 import dataclasses
-from fileinput import filename
 import json
 import ntpath
 import os
@@ -119,7 +120,7 @@ class AstroLauncher():
                 AstroLogging.logPrint(
                     f"Server saved. {ntpath.basename(fileName)}", dwet="s")
                 AstroLogging.logPrint(f"{event.src_path}", msgType='debug')
-            except:
+            except Exception:
                 pass
             # self.launcher.saveObserver.stop()
 
@@ -148,7 +149,7 @@ class AstroLauncher():
             try:
                 if not ntpath.exists(path):
                     os.makedirs(path)
-            except Exception as e:
+            except OSError as e:
                 AstroLogging.logPrint(e, "error")
             now = time.time()
             try:
@@ -156,7 +157,7 @@ class AstroLauncher():
                     fpath = ntpath.join(path, f)
                     if os.stat(fpath).st_mtime < (now - (self.retentionPeriodHours * 60 * 60)):
                         os.remove(fpath)
-            except Exception as e:
+            except OSError as e:
                 AstroLogging.logPrint(e, "error")
 
             AstroLogging.logPrint(
@@ -172,9 +173,7 @@ class AstroLauncher():
                     # print(cFile)
                     shutil.copy2(cFile, path)
                     # AstroLogging.logPrint(copiedFile, "debug")
-            except FileNotFoundError as e:
-                AstroLogging.logPrint(e, "error")
-            except Exception as e:
+            except (FileNotFoundError, OSError, IndexError) as e:
                 AstroLogging.logPrint(e, "error")
 
             self.launcher.backupObserver.stop()
@@ -192,7 +191,7 @@ class AstroLauncher():
                     t = Thread(target=self.handle_files, args=())
                     t.daemon = True
                     t.start()
-            except:
+            except Exception:
                 pass
 
     def __init__(self, astroPath, launcherINI="Launcher.ini", disable_auto_update=None):
@@ -338,8 +337,9 @@ class AstroLauncher():
 
             self.start_server(firstLaunch=True)
         except Exception as err:
-            ermsg2 = ('INIT Error on line {}'.format(
-                sys.exc_info()[-1].tb_lineno), type(err).__name__, err)
+            tb = sys.exc_info()[-1]
+            tb_lineno = tb.tb_lineno if tb else 0
+            ermsg2 = (f'INIT Error on line {tb_lineno}', type(err).__name__, err)
             AstroLogging.logPrint(f"{ermsg2}", "critical", True)
 
     def save_reporting(self):
@@ -355,7 +355,7 @@ class AstroLauncher():
             try:
                 if not ntpath.exists(watchPath):
                     os.makedirs(watchPath)
-            except Exception as e:
+            except OSError as e:
                 AstroLogging.logPrint(e)
             self.saveObserver.schedule(
                 self.SaveHandler(self), watchPath)
@@ -374,7 +374,7 @@ class AstroLauncher():
             try:
                 if not ntpath.exists(watchPath):
                     os.makedirs(watchPath)
-            except Exception as e:
+            except OSError as e:
                 AstroLogging.logPrint(e)
             self.backupObserver.daemon = True
 
@@ -392,7 +392,7 @@ class AstroLauncher():
 
         config = MultiConfig()
         config.read_dict({"AstroLauncher": cleaned_config})
-        with open(self.launcherINI, 'w') as configfile:
+        with open(self.launcherINI, 'w', encoding='utf-8') as configfile:
             config.write(configfile)
 
     def overwrite_launcher_config(self, ovrDict):
@@ -417,13 +417,14 @@ class AstroLauncher():
             AstroLogging.logPrint("Attempting to validate Playfab Certs")
             playfabRequestCommand = ["powershell", '-executionpolicy', 'bypass', '-command',
                                      'Invoke-WebRequest -uri https://5ea1.playfabapi.com/ -UseBasicParsing']
-            with open(os.devnull, 'w') as tempf:
+            with open(os.devnull, 'w', encoding='utf-8') as tempf:
                 proc = subprocess.Popen(
                     playfabRequestCommand, stdout=tempf, stderr=tempf)
                 proc.communicate()
         except Exception as err:
-            ermsg3 = ('VerifyPlayfabCert Error on line {}'.format(
-                sys.exc_info()[-1].tb_lineno), type(err).__name__, err)
+            tb = sys.exc_info()[-1]
+            tb_lineno = tb.tb_lineno if tb else 0
+            ermsg3 = (f'VerifyPlayfabCert Error on line {tb_lineno}', type(err).__name__, err)
             AstroLogging.logPrint(f"{ermsg3}", "warning", True)
 
     def update_server(self, latest_version):
@@ -447,22 +448,23 @@ class AstroLauncher():
             if ntpath.exists(updateLocation):
                 upd_version = "0.0"
                 try:
-                    with open(ntpath.join(updateLocation, "build.version"), "r") as f:
+                    with open(ntpath.join(updateLocation, "build.version"), "r", encoding='utf-8') as f:
                         upd_version = (f.readline())[:-10]
                     if upd_version == latest_version:
                         update_downloaded = True
-                except:
+                except OSError:
                     try:
                         shutil.rmtree(updateLocation)
-                    except:
+                    except OSError:
                         pass
 
             if not update_downloaded:
-                open("update.p", "wb").write(b"download")
+                with open("update.p", "wb") as f:
+                    f.write(b"download")
                 if ntpath.exists(steamcmdExe):
                     try:
                         os.remove(steamcmdZip)
-                    except:
+                    except OSError:
                         pass
 
                     AstroLogging.logPrint(
@@ -478,31 +480,33 @@ class AstroLauncher():
                         for child in psutil.Process(update.pid).children():
                             try:
                                 child.kill()
-                            except:
+                            except (psutil.NoSuchProcess, psutil.AccessDenied):
                                 pass
                         try:
                             update.kill()
-                        except:
+                        except OSError:
                             pass
 
-                        raise Exception("") from e
+                        raise RuntimeError("SteamCMD update failed") from e
 
                 upd_version = "0.0"
                 try:
-                    with open(ntpath.join(updateLocation, "build.version"), "r") as f:
+                    with open(ntpath.join(updateLocation, "build.version"), "r", encoding='utf-8') as f:
                         upd_version = (f.readline())[:-10]
-                except:
+                except OSError:
                     pass
                 if upd_version == latest_version:
                     update_downloaded = True
 
             if update_downloaded:
-                open("update.p", "wb").write(b"transfer")
+                with open("update.p", "wb") as f:
+                    f.write(b"transfer")
                 shutil.copytree(updateLocation, self.astroPath, dirs_exist_ok=True)
-                open("update.p", "wb").write(b"complete")
+                with open("update.p", "wb") as f:
+                    f.write(b"complete")
 
             cur_version = "0.0"
-            with open(ntpath.join(self.astroPath, "build.version"), "r") as f:
+            with open(ntpath.join(self.astroPath, "build.version"), "r", encoding='utf-8') as f:
                 cur_version = (f.readline())[:-10]
 
             if cur_version == latest_version:
@@ -513,14 +517,14 @@ class AstroLauncher():
                     os.remove(steamcmdZip)
             try:
                 os.remove("update.p")
-            except:
+            except OSError:
                 pass
             try:
                 shutil.rmtree(updateLocation)
-            except:
+            except OSError:
                 pass
 
-        except:  # Exception as e:
+        except Exception:  # Exception as e:
             AstroLogging.logPrint(
                 f"UPDATE TO {latest_version} FAILED.", "warning")
 
@@ -528,50 +532,49 @@ class AstroLauncher():
         try:
             # print('here1')
             if not self.launcherConfig.UpdateOnServerRestart and serverStart:
-                return
-            else:
-                # print('here2')
-                needs_update = False
-                update_status = None
-                if ntpath.exists("update.p"):
-                    with open("update.p", "r") as f:
-                        update_status = f.read()
-                    if update_status != "completed":
-                        needs_update = True
-
-                # print('here3')
-                cur_version = "0.0"
-                try:
-                    with open(ntpath.join(self.astroPath, "build.version"), "r") as f:
-                        cur_version = (f.readline())[:-10]
-                except:
-                    pass
-                # print(cur_version)
-                # print('here4')
-                if cur_version == "0.0":
+                return False, "0.0"
+            # print('here2')
+            needs_update = False
+            update_status = None
+            if ntpath.exists("update.p"):
+                with open("update.p", "r", encoding='utf-8') as f:
+                    update_status = f.read()
+                if update_status != "completed":
                     needs_update = True
-                url = "https://servercheck.spycibot.com/stats"
-                data = json.load(AstroRequests.get(url))
-                # print(data)
 
-                # print('here6')
-                latest_version = data['LatestVersion']
-                if version.parse(latest_version) > version.parse(cur_version):
-                    needs_update = True
-                if not ntpath.exists(ntpath.join(self.astroPath, "AstroServer.exe")):
-                    needs_update = True
-                if needs_update:
-                    AstroLogging.logPrint(
-                        f"SERVER UPDATE AVAILABLE: {cur_version} -> {latest_version}", "warning")
+            # print('here3')
+            cur_version = "0.0"
+            try:
+                with open(ntpath.join(self.astroPath, "build.version"), "r", encoding='utf-8') as f:
+                    cur_version = (f.readline())[:-10]
+            except OSError:
+                pass
+            # print(cur_version)
+            # print('here4')
+            if cur_version == "0.0":
+                needs_update = True
+            url = "https://servercheck.spycibot.com/stats"
+            data = json.load(AstroRequests.get(url))
+            # print(data)
 
-                    # print('here7')
-                    if self.launcherConfig.AutoUpdateServerSoftware and not check_only:
-                        self.update_server(latest_version)
-                    # print('here8')
-                    return True, latest_version
+            # print('here6')
+            latest_version = data['LatestVersion']
+            if version.parse(latest_version) > version.parse(cur_version):
+                needs_update = True
+            if not ntpath.exists(ntpath.join(self.astroPath, "AstroServer.exe")):
+                needs_update = True
+            if needs_update:
+                AstroLogging.logPrint(
+                    f"SERVER UPDATE AVAILABLE: {cur_version} -> {latest_version}", "warning")
+
+                # print('here7')
+                if self.launcherConfig.AutoUpdateServerSoftware and not check_only:
+                    self.update_server(latest_version)
+                # print('here8')
+                return True, latest_version
 
             cur_version = "0.0"
-            with open(ntpath.join(self.astroPath, "build.version"), "r") as f:
+            with open(ntpath.join(self.astroPath, "build.version"), "r", encoding='utf-8') as f:
                 cur_version = (f.readline())[:-10]
             self.cur_server_version = cur_version
             # print('here9')
@@ -599,7 +602,7 @@ class AstroLauncher():
 
                 if self.isExecutable and aupdate:
                     self.autoupdate_launcher(data)
-        except:
+        except Exception:
             AstroLogging.logPrint(
                 "Could not determine if new update exists.", msgType="debug")
 
@@ -654,7 +657,7 @@ class AstroLauncher():
             try:
                 gxAuth = AstroAPI.generate_XAUTH(
                     self.DedicatedServer.settings.ServerGuid)
-            except:
+            except Exception:
                 AstroLogging.logPrint(
                     "Unable to generate XAuth token... Are you connected to the internet?", msgType="warning")
                 time.sleep(5)
@@ -668,7 +671,7 @@ class AstroLauncher():
         startTime = time.time()
         try:
             self.DedicatedServer.start()
-        except:
+        except Exception:
             AstroLogging.logPrint(
                 "Unable to launch AstroServer.exe", "critical")
             return False
@@ -681,7 +684,7 @@ class AstroLauncher():
                     self.DedicatedServer.process.poll())
                 pcounter -= 1
                 time.sleep(0.25)
-            except:
+            except Exception:
                 pcounter -= 2
                 time.sleep(0.5)
             if pcounter <= 0:
@@ -695,7 +698,7 @@ class AstroLauncher():
         try:
             self.DaemonProcess = AstroDaemon.launch(
                 executable=self.isExecutable, consolePID=self.DedicatedServer.process.pid)
-        except:
+        except Exception:
             AstroLogging.logPrint(
                 "Unable to start watcher daemon", "warning")
             return False
@@ -727,7 +730,7 @@ class AstroLauncher():
             except KeyboardInterrupt:
                 self.DedicatedServer.kill_server(
                     "Launcher shutting down via KeyboardInterrupt")
-            except:
+            except Exception:
                 AstroLogging.logPrint(
                     "Failed to check server. Probably hit rate limit. Backing off and trying again...")
                 if self.launcherConfig.PlayfabAPIFrequency < 30:
@@ -744,6 +747,7 @@ class AstroLauncher():
         self.DedicatedServer.status = "ready"
         # AstroLogging.logPrint("Starting server_loop: 1", "debug")
         self.DedicatedServer.server_loop()
+        return True
 
     def check_ports_free(self):
         serverPort = False
@@ -929,12 +933,12 @@ class AstroLauncher():
         try:
             for child in psutil.Process(os.getpid()).children():
                 child.kill()
-        except:
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
         # Kill current process
         try:
             os.kill(os.getpid(), 9)
-        except:
+        except OSError:
             pass
 
     def start_WebHookLoop(self):
@@ -946,7 +950,7 @@ class AstroLauncher():
 if __name__ == "__main__":
     try:
         os.system("title AstroLauncher - Unofficial Dedicated Server Launcher")
-    except:
+    except Exception:
         pass
     try:
         parser = argparse.ArgumentParser()
@@ -983,6 +987,7 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         pass
     except Exception as err:
-        ermsg1 = ('FINAL Error on line {}'.format(
-            sys.exc_info()[-1].tb_lineno), type(err).__name__, err)
+        tb = sys.exc_info()[-1]
+        tb_lineno = tb.tb_lineno if tb else 0
+        ermsg1 = (f'FINAL Error on line {tb_lineno}', type(err).__name__, err)
         AstroLogging.logPrint(f"{ermsg1}", "critical", True)
