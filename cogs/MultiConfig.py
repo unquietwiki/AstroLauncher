@@ -65,9 +65,8 @@ class MultiConfig():
         return config
 
     def _update(self, baseDict, updateWithDict):
-        tDict = {}
+        tDict = baseDict.copy()
         for key, value in baseDict.items():
-            tDict[key] = value
             if key in updateWithDict.keys():
                 if isinstance(value, dict):
                     tDict[key] = self._update(
@@ -115,10 +114,19 @@ class MultiConfig():
         pathname = ntpath.dirname(filePath)
         if pathname and not ntpath.exists(pathname):
             os.makedirs(pathname)
-        with open(filePath, 'a+', encoding="utf_8"):
-            pass
+
+        # Ensure file exists
+        if not os.path.exists(filePath):
+            with open(filePath, 'w', encoding="utf_8"):
+                pass
+
+        # Read file once to detect encoding
         with open(filePath, 'rb') as fP:
             rawdata = fP.read()
+
+        # Return UTF-8 for empty files
+        if not rawdata:
+            return 'utf_8'
+
         result = chardet.detect(rawdata)
-        charenc = result['encoding']
-        return charenc
+        return result['encoding']
