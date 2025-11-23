@@ -1,20 +1,21 @@
+# pylint: disable=invalid-name,line-too-long,missing-function-docstring
 
 import dataclasses
 import datetime
 import glob
 import json
 import math
-import ntpath
 import os
 import subprocess
+import signal
 import time
 
 import pathvalidate
 import psutil
 from PyPAKParser import PakParser
 
-import cogs.AstroAPI as AstroAPI
-import cogs.ValidateSettings as ValidateSettings
+from cogs import AstroAPI
+from cogs import ValidateSettings
 from cogs.AstroLogging import AstroLogging
 from cogs.AstroRCON import AstroRCON
 
@@ -118,10 +119,26 @@ class AstroDedicatedServer():
 
     def start(self):
         if self.launcher.launcherConfig.HideServerConsoleWindow:
-            cmd = [ntpath.join(self.astroPath, "AstroServer.exe")]
+            cmd = [os.path.join(self.astroPath, "AstroServer.exe")]
         else:
-            cmd = [ntpath.join(self.astroPath, "AstroServer.exe"), '-log']
-        self.process = subprocess.Popen(cmd)
+            cmd = [os.path.join(self.astroPath, "AstroServer.exe"), '-log']
+
+        try:
+            # Check if the executable exists
+            if not os.path.exists(cmd[0]):
+                raise FileNotFoundError(f"AstroServer.exe not found at: {cmd[0]}")
+
+            self.process = subprocess.Popen(cmd)
+            AstroLogging.logPrint(f"Started AstroServer with PID: {self.process.pid}")
+        except FileNotFoundError as e:
+            AstroLogging.logPrint(f"Failed to start server: {e}", "error")
+            raise
+        except PermissionError as e:
+            AstroLogging.logPrint(f"Permission denied when starting server: {e}", "error")
+            raise
+        except Exception as e:
+            AstroLogging.logPrint(f"Unexpected error starting server: {e}", "error")
+            raise
 
     @staticmethod
     def convert_size(size_bytes):
@@ -135,24 +152,24 @@ class AstroDedicatedServer():
 
     def getPaks(self):
         try:
-            pakPath = ntpath.join(self.astroPath, r"Astro\Saved\Paks")
+            pakPath = os.path.join(self.astroPath, r"Astro\Saved\Paks")
             for f in os.listdir(pakPath):
                 try:
-                    with open(ntpath.join(pakPath, f), "rb") as pakFile:
+                    with open(os.path.join(pakPath, f), "rb") as pakFile:
                         PP = PakParser(pakFile)
                         mdFile = "metadata.json"
                         md = PP.List(mdFile)
                         if mdFile in md:
                             ppData = PP.Unpack(mdFile).Data.decode()
-                            self.pakList.append({ntpath.basename(f): ppData})
-                except:
-                    pass
-        except:
-            pass
+                            self.pakList.append({os.path.basename(f): ppData})
+                except Exception as e:
+                    AstroLogging.logPrint(f"Failed to parse pak file {f}: {e}", "debug")
+        except Exception as e:
+            AstroLogging.logPrint(f"Failed to access pak directory: {e}", "debug")
 
     def get_save_file_name(self, save):
         saveGamePath = r"Astro\Saved\SaveGames"
-        saveGamePath = ntpath.join(
+        saveGamePath = os.path.join(
             self.astroPath, saveGamePath)
         fullName = None
 
@@ -173,17 +190,27 @@ class AstroDedicatedServer():
                 glob.glob(saveGamePath + f"/{save['name']}.savegame"))
             if len(saveFileName) > 0:
                 fullName = saveFileName[0]
-        saveFileName = ntpath.basename(fullName)
+        if fullName is not None:
+            saveFileName = os.path.basename(fullName)
+        else:
+            saveFileName = None
         return fullName, saveFileName
 
     def getSaves(self):
         try:
             if self.AstroRCON is None or not self.AstroRCON.connected:
+                AstroLogging.logPrint("Cannot get saves: RCON is not connected", "warning")
                 return False
             tempSaveGames = {}
-            while tempSaveGames == {} and 'activeSaveName' not in tempSaveGames:
+            retry_count = 0
+            max_retries = 100  # Maximum 10 seconds of retries (100 * 0.1 seconds)
+            while (not tempSaveGames or 'activeSaveName' not in tempSaveGames) and retry_count < max_retries:
                 tempSaveGames = self.AstroRCON.DSListGames()
+                retry_count += 1
                 time.sleep(0.1)
+            if retry_count >= max_retries:
+                AstroLogging.logPrint("Failed to get save games after maximum retries", "warning")
+                return False
             self.DSListGames = tempSaveGames
             for save in self.DSListGames["gameList"]:
                 try:
@@ -192,10 +219,10 @@ class AstroDedicatedServer():
                         if saveFileName:
                             save['fileName'] = saveFileName
                         size = AstroDedicatedServer.convert_size(
-                            ntpath.getsize(sfPath))
+                            os.path.getsize(sfPath))
                         save["size"] = size
-                    except:
-                        pass
+                    except Exception as e:
+                        AstroLogging.logPrint(f"Failed to get save file info: {e}", "debug")
                     multipleOfName = False
                     hasDate = False
                     if len([x for x in self.DSListGames["gameList"] if x['name'] == save['name']]) > 1:
@@ -209,13 +236,14 @@ class AstroDedicatedServer():
                         save['active'] = "Active"
                     else:
                         save['active'] = ""
-                except:
-                    pass
-        except:
-            pass
+                except Exception as e:
+                    AstroLogging.logPrint(f"Failed to process save game: {e}", "debug")
+        except Exception as e:
+            AstroLogging.logPrint(f"Failed to get saves: {e}", "debug")
 
     def saveGame(self, name=None, shutdown=False):
         if self.AstroRCON is None or not self.AstroRCON.connected:
+            AstroLogging.logPrint("Cannot save game: RCON is not connected", "warning")
             return False
         self.setStatus("saving")
         self.busy = "Saving"
@@ -228,6 +256,7 @@ class AstroDedicatedServer():
 
     def newSaveGame(self):
         if self.AstroRCON is None or not self.AstroRCON.connected:
+            AstroLogging.logPrint("Cannot create new save game: RCON is not connected", "warning")
             return False
         self.setStatus("newsave")
         self.busy = "NewSave"
@@ -240,6 +269,7 @@ class AstroDedicatedServer():
 
     def loadSaveGame(self, saveData):
         if self.AstroRCON is None or not self.AstroRCON.connected:
+            AstroLogging.logPrint("Cannot load save game: RCON is not connected", "warning")
             return False
         self.setStatus("loadsave")
         self.busy = "LoadSave"
@@ -253,6 +283,7 @@ class AstroDedicatedServer():
 
     def deleteSaveGame(self, saveData):
         if self.AstroRCON is None or not self.AstroRCON.connected:
+            AstroLogging.logPrint("Cannot delete save game: RCON is not connected", "warning")
             return False
         name = saveData['name']
         if pathvalidate.is_valid_filename(name):
@@ -260,42 +291,43 @@ class AstroDedicatedServer():
             self.busy = "DelSave"
             saveGamePath = r"Astro\Saved\SaveGames"
             AstroLogging.logPrint(f"Deleting save: {saveData['fileName']}")
-            sfPath = ntpath.join(
+            sfPath = os.path.join(
                 self.astroPath, saveGamePath, saveData['fileName'])
-            if ntpath.exists(sfPath):
+            if os.path.exists(sfPath):
                 os.remove(sfPath)
         self.getSaves()
         self.busy = False
 
     def renameSaveGame(self, oldSave, newName):
         if self.AstroRCON is None or not self.AstroRCON.connected:
+            AstroLogging.logPrint("Cannot rename save game: RCON is not connected", "warning")
             return False
         self.setStatus("renamesave")
         self.busy = "RenameSave"
         if pathvalidate.is_valid_filename(oldSave['name']) and pathvalidate.is_valid_filename(newName):
             saveGamePath = r"Astro\Saved\SaveGames"
-            saveGamePath = ntpath.join(self.astroPath, saveGamePath)
+            saveGamePath = os.path.join(self.astroPath, saveGamePath)
             AstroLogging.logPrint(
                 f"Renaming save: {oldSave['name']} to {newName}")
             if oldSave['active']:
                 self.saveGame(newName)
-                sfPath = ntpath.join(saveGamePath, oldSave['fileName'])
+                sfPath = os.path.join(saveGamePath, oldSave['fileName'])
                 self.getSaves()
                 newSave = [x for x in self.DSListGames['gameList']
                            if x['name'] == newName]
                 if newSave:
                     newSave = newSave[0]
-                    sfNPath = ntpath.join(saveGamePath, newSave['fileName'])
-                    if ntpath.exists(sfNPath) and ntpath.exists(sfPath):
+                    sfNPath = os.path.join(saveGamePath, newSave['fileName'])
+                    if os.path.exists(sfNPath) and os.path.exists(sfPath):
                         os.remove(sfPath)
             else:
                 saveFileName = oldSave['fileName']
-                sfPath = ntpath.join(saveGamePath, saveFileName)
+                sfPath = os.path.join(saveGamePath, saveFileName)
                 newSaveFileName = saveFileName.replace(
                     oldSave['name'], newName)
-                sfNPath = ntpath.join(saveGamePath, newSaveFileName)
+                sfNPath = os.path.join(saveGamePath, newSaveFileName)
                 # time.sleep(1)
-                if ntpath.exists(sfPath) and not ntpath.exists(sfNPath):
+                if os.path.exists(sfPath) and not os.path.exists(sfNPath):
                     os.rename(sfPath, sfNPath)
 
         self.getSaves()
@@ -303,6 +335,7 @@ class AstroDedicatedServer():
 
     def shutdownServer(self):
         if self.AstroRCON is None or not self.AstroRCON.connected:
+            AstroLogging.logPrint("Cannot shutdown server: RCON is not connected", "warning")
             return False
         self.setStatus("shutdown")
         self.busy = "Shutdown"
@@ -313,6 +346,7 @@ class AstroDedicatedServer():
 
     def save_and_shutdown(self):
         if self.AstroRCON is None or not self.AstroRCON.connected:
+            AstroLogging.logPrint("Cannot save and shutdown: RCON is not connected", "warning")
             return False
         self.saveGame(shutdown=True)
         self.busy = "S&Shutdown"
@@ -321,13 +355,14 @@ class AstroDedicatedServer():
     def setStatus(self, status):
         try:
             self.status = status
-        except:
-            pass
+        except Exception as e:
+            AstroLogging.logPrint(f"Failed to set status: {e}", "debug")
 
     def quickToggleWhitelist(self):
         '''Toggling the whitelist is good for forcing the server to put every player who has joined the current save's Guid into the INI'''
 
         if self.AstroRCON is None or not self.AstroRCON.connected:
+            AstroLogging.logPrint("Cannot toggle whitelist: RCON is not connected", "warning")
             return False
         wLOn = self.settings.DenyUnlistedPlayers
         self.AstroRCON.DSSetDenyUnlisted(not wLOn)
@@ -338,17 +373,25 @@ class AstroDedicatedServer():
         if self.lastXAuth is None or (datetime.datetime.now() - self.lastXAuth).total_seconds() > 3600:
             try:
                 gxAuth = None
-                while gxAuth is None:
+                retry_count = 0
+                max_retries = 30  # Maximum 5 minutes of retries (30 * 10 seconds)
+                while gxAuth is None and retry_count < max_retries:
                     try:
                         AstroLogging.logPrint(
                             "Generating new xAuth...", "debug")
                         gxAuth = AstroAPI.generate_XAUTH(
                             self.settings.ServerGuid)
-                    except:
+                    except Exception as e:
+                        retry_count += 1
+                        if retry_count >= max_retries:
+                            AstroLogging.logPrint(
+                                f"Failed to generate xAuth after {max_retries} attempts: {e}", "warning")
+                            raise
                         time.sleep(10)
                 self.launcher.headers['X-Authorization'] = gxAuth
                 self.lastXAuth = datetime.datetime.now()
-            except:
+            except Exception as e:
+                AstroLogging.logPrint(f"Error in getXauth: {e}", "warning")
                 self.lastXAuth += datetime.timedelta(seconds=20)
 
     def server_loop(self):
@@ -359,8 +402,8 @@ class AstroDedicatedServer():
                 if not self.AstroRCON or not self.AstroRCON.connected:
                     self.AstroRCON = self.start_RCON()
                     self.quickToggleWhitelist()
-            except:
-                pass
+            except Exception as e:
+                AstroLogging.logPrint(f"Failed to establish RCON connection: {e}", "debug")
             while not self.AstroRCON.connected:
                 # AstroLogging.logPrint("Waiting on AstroRCON to connect", "debug")
                 time.sleep(0.1)
@@ -410,8 +453,8 @@ class AstroDedicatedServer():
                         self.save_and_shutdown()
                         self.launcher.update_server(latest_version)
                         continue
-                except:
-                    pass
+                except Exception as e:
+                    AstroLogging.logPrint(f"Failed to check for server update: {e}", "debug")
 
                 serverData = []
                 try:
@@ -422,8 +465,8 @@ class AstroDedicatedServer():
                         self.ipPortCombo, self.launcher.headers))['data']['Games']
                     if len(serverData) > 0:
                         self.serverData = serverData[0]
-                except:
-                    pass
+                except Exception as e:
+                    AstroLogging.logPrint(f"Failed to get server data for heartbeat: {e}", "debug")
                 hbServerName = {"customdata": {
                     "ServerName": self.settings.ServerName,
                     "ServerType": ("AstroLauncherEXE" if self.launcher.isExecutable else "AstroLauncherPy") + f" {self.launcher.version}",
@@ -452,11 +495,11 @@ class AstroDedicatedServer():
                         AstroLogging.logPrint(
                             f"hbStatus: {hbStatus}", "debug")
                         if 'status' in hbStatus and hbStatus['status'] == "Error":
-                            raise "HeartBeatError"
+                            raise Exception("HeartBeatError")
 
-                    except:
+                    except Exception as e:
                         AstroLogging.logPrint(
-                            f"Failed to heartbeat server on attempt: {hbTryCount}", msgType="warning")
+                            f"Failed to heartbeat server on attempt: {hbTryCount} - {e}", msgType="warning")
                     hbTryCount += 1
 
                 if hbTryCount > 1:
@@ -574,32 +617,32 @@ class AstroDedicatedServer():
         try:
             self.busy = "Kill"
             self.setStatus("shutdown")
-        except:
-            pass
+        except Exception as e:
+            AstroLogging.logPrint(f"Failed to set shutdown status: {e}", "debug")
         try:
             if save:
                 self.AstroRCON.lock = False
                 self.shutdownServer()
                 time.sleep(1)
-        except:
-            pass
+        except Exception as e:
+            AstroLogging.logPrint(f"Failed to shutdown server gracefully: {e}", "warning")
         try:
             self.deregister_all_server()
-        except:
-            pass
+        except Exception as e:
+            AstroLogging.logPrint(f"Failed to deregister server: {e}", "warning")
         # Kill all child processes
         try:
             for child in psutil.Process(self.process.pid).children():
                 child.kill()
-        except:
-            pass
+        except Exception as e:
+            AstroLogging.logPrint(f"Failed to kill child processes: {e}", "debug")
         try:
             self.setStatus("off")
-        except:
-            pass
-        # Kill current process
+        except Exception as e:
+            AstroLogging.logPrint(f"Failed to set off status: {e}", "debug")
+        # Gracefully terminate current process
         try:
             if killLauncher:
-                os.kill(os.getpid(), 9)
-        except:
-            pass
+                os.kill(os.getpid(), signal.SIGTERM)
+        except Exception as e:
+            AstroLogging.logPrint(f"Failed to terminate launcher process: {e}", "warning")
