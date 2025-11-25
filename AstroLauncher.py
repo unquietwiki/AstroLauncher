@@ -31,6 +31,7 @@ from cogs.AstroDedicatedServer import AstroDedicatedServer
 from cogs.AstroLogging import AstroLogging
 from cogs.MultiConfig import MultiConfig
 from cogs.utils import AstroRequests
+from cogs.DetermineServerBuild import DetermineServerBuild
 
 from cogs.utils import ALVERSION
 
@@ -427,7 +428,7 @@ class AstroLauncher():
             ermsg3 = (f'VerifyPlayfabCert Error on line {tb_lineno}', type(err).__name__, err)
             AstroLogging.logPrint(f"{ermsg3}", "warning", True)
 
-    def update_server(self, latest_version):
+    def update_server(self, latest_build):
         updateLocation = ntpath.join(
             self.astroPath, 'steamcmd', 'steamapps', 'common', 'ASTRONEER Dedicated Server')
         steamcmdFolder = ntpath.join(self.astroPath, "steamcmd")
@@ -445,19 +446,6 @@ class AstroLauncher():
                         zip_ref.extractall(steamcmdFolder)
             update_downloaded = False
 
-            if ntpath.exists(updateLocation):
-                upd_version = "0.0"
-                try:
-                    with open(ntpath.join(updateLocation, "build.version"), "r", encoding='utf-8') as f:
-                        upd_version = (f.readline())[:-10]
-                    if upd_version == latest_version:
-                        update_downloaded = True
-                except OSError:
-                    try:
-                        shutil.rmtree(updateLocation)
-                    except OSError:
-                        pass
-
             if not update_downloaded:
                 with open("update.p", "wb") as f:
                     f.write(b"download")
@@ -468,7 +456,7 @@ class AstroLauncher():
                         pass
 
                     AstroLogging.logPrint(
-                        f"AUTOMATICALLY UPDATING SERVER TO {latest_version}...")
+                        f"AUTOMATICALLY UPDATING SERVER TO {latest_build}...")
                     try:
                         updateCMD = [steamcmdExe, '+login anonymous',
                                      '+app_update 728470', 'validate', '+quit']
@@ -495,7 +483,7 @@ class AstroLauncher():
                         upd_version = (f.readline())[:-10]
                 except OSError:
                     pass
-                if upd_version == latest_version:
+                if upd_version != "0.0":
                     update_downloaded = True
 
             if update_downloaded:
@@ -509,9 +497,9 @@ class AstroLauncher():
             with open(ntpath.join(self.astroPath, "build.version"), "r", encoding='utf-8') as f:
                 cur_version = (f.readline())[:-10]
 
-            if cur_version == latest_version:
+            if cur_version != "0.0":
                 AstroLogging.logPrint(
-                    f"UPDATE TO {latest_version} SUCCESSFUL.")
+                    f"UPDATE TO {cur_version} SUCCESSFUL.")
                 steamcmdZip = ntpath.join(self.astroPath, "steamcmd.zip")
                 if ntpath.exists(steamcmdZip):
                     os.remove(steamcmdZip)
@@ -526,7 +514,7 @@ class AstroLauncher():
 
         except Exception:  # Exception as e:
             AstroLogging.logPrint(
-                f"UPDATE TO {latest_version} FAILED.", "warning")
+                f"UPDATE FAILED.", "warning")
 
     def check_for_server_update(self, serverStart=False, check_only=False):
         try:
@@ -549,35 +537,23 @@ class AstroLauncher():
                     cur_version = (f.readline())[:-10]
             except OSError:
                 pass
-            # print(cur_version)
-            # print('here4')
-            if cur_version == "0.0":
-                needs_update = True
-            url = "https://servercheck.spycibot.com/stats"
-            data = json.load(AstroRequests.get(url))
-            # print(data)
 
-            # print('here6')
-            latest_version = data['LatestVersion']
-            if version.parse(latest_version) > version.parse(cur_version):
-                needs_update = True
+            # Use new update determination
+            dbv = DetermineServerBuild(self.astroPath)
+            needs_update = dbv.updateOK()
+
             if not ntpath.exists(ntpath.join(self.astroPath, "AstroServer.exe")):
                 needs_update = True
             if needs_update:
                 AstroLogging.logPrint(
-                    f"SERVER UPDATE AVAILABLE: {cur_version} -> {latest_version}", "warning")
-
-                # print('here7')
+                    f"SERVER UPDATE AVAILABLE: {dbv.getCurrentBuildID()} -> {dbv.getLatestBuildID()}", "warning")
                 if self.launcherConfig.AutoUpdateServerSoftware and not check_only:
-                    self.update_server(latest_version)
-                # print('here8')
-                return True, latest_version
-
-            cur_version = "0.0"
-            with open(ntpath.join(self.astroPath, "build.version"), "r", encoding='utf-8') as f:
-                cur_version = (f.readline())[:-10]
-            self.cur_server_version = cur_version
-            # print('here9')
+                    self.update_server(dbv.getLatestBuildID())
+                    with open(ntpath.join(self.astroPath, "build.version"), "r", encoding='utf-8') as f:
+                        cur_version = (f.readline())[:-10]
+                        self.cur_server_version = cur_version
+                return True, cur_version
+            
         except Exception as e:
             print(e)
             AstroLogging.logPrint(

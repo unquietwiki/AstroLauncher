@@ -1,6 +1,7 @@
 __pycache__
 .vscode
 .pylintrc
+.claude
 
 build/
 dist/
@@ -11,5 +12,4 @@ AstroServerSettings.ini
 Launcher.ini
 AstroLauncher.exe
 notes
-
-.claude
+steamapps
