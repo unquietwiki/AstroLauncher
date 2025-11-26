@@ -23,9 +23,9 @@ from packaging import version
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-import cogs.AstroAPI as AstroAPI
-import cogs.AstroWebServer as AstroWebServer
-import cogs.ValidateSettings as ValidateSettings
+from cogs import AstroAPI
+from cogs import AstroWebServer
+from cogs import ValidateSettings
 from cogs.AstroDaemon import AstroDaemon
 from cogs.AstroDedicatedServer import AstroDedicatedServer
 from cogs.AstroLogging import AstroLogging
@@ -540,7 +540,7 @@ class AstroLauncher():
 
             # Use new update determination
             AstroLogging.logPrint(
-                    f"CHECKING FOR SERVER UPDATE", "info")
+                    f" Checking for AstroServer update", "info")
             dbv = DetermineServerBuild(self.astroPath)
             needs_update = dbv.updateOK()
 
