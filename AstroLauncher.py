@@ -539,6 +539,8 @@ class AstroLauncher():
                 pass
 
             # Use new update determination
+            AstroLogging.logPrint(
+                    f"CHECKING FOR SERVER UPDATE", "info")
             dbv = DetermineServerBuild(self.astroPath)
             needs_update = dbv.updateOK()
 
