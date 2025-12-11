@@ -65,6 +65,7 @@ class AstroDedicatedServer():
         self.onlinePlayers = []
         self.registered = False
         self.serverData = None
+        self.lastUpdateCheck = None
         self.lastHeartbeat = None
         self.LobbyID = None
         self.lastXAuth = datetime.datetime.now()
@@ -395,6 +396,18 @@ class AstroDedicatedServer():
             # AstroLogging.logPrint("Server_loop section: 4", "debug")
             self.getXauth()
 
+            # Try to update every 30 minutes
+            if self.lastUpdateCheck is None or (now - self.lastUpdateCheck).total_seconds() > 1800:
+                try:
+                    needs_update, latest_build = self.launcher.check_for_server_update(serverStart=True, check_only=True)
+                    if needs_update and self.launcher.launcherConfig.AutoUpdateServerSoftware:
+                        self.save_and_shutdown()
+                        self.launcher.update_server(latest_build)
+                        continue
+                except Exception as e:
+                    AstroLogging.logPrint(f"Failed to check for server update: {e}", "debug")
+                self.lastUpdateCheck = datetime.datetime.now()
+
             # AstroLogging.logPrint("Server_loop section: 5", "debug")
             # AstroLogging.logPrint(f"self.lastHeartbeat: {self.lastHeartbeat}", "debug")
             # try:
@@ -402,18 +415,6 @@ class AstroDedicatedServer():
             # except:
             #     pass
             if self.lastHeartbeat is None or (now - self.lastHeartbeat).total_seconds() > 30:
-
-                try:
-                    needs_update, latest_version = self.launcher.check_for_server_update(
-                        serverStart=True, check_only=True)
-
-                    if needs_update and self.launcher.launcherConfig.AutoUpdateServerSoftware:
-                        self.save_and_shutdown()
-                        AstroLogging.logPrint("Told server to shut down, continuing with update...", msgType="debug")
-                        self.launcher.update_server(latest_version)
-                        continue
-                except:
-                    pass
 
                 serverData = []
                 try:

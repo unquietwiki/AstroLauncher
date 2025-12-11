@@ -1,9 +1,10 @@
+# pylint: disable=invalid-name,line-too-long,missing-function-docstring
+
 import argparse
 import asyncio
 import atexit
 import ctypes
 import dataclasses
-from fileinput import filename
 import json
 import ntpath
 import os
@@ -15,7 +16,6 @@ import subprocess
 import sys
 import time
 import zipfile
-from distutils import dir_util
 from threading import Thread
 
 import psutil
@@ -23,14 +23,15 @@ from packaging import version
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-import cogs.AstroAPI as AstroAPI
-import cogs.AstroWebServer as AstroWebServer
-import cogs.ValidateSettings as ValidateSettings
+from cogs import AstroAPI
+from cogs import AstroWebServer
+from cogs import ValidateSettings
 from cogs.AstroDaemon import AstroDaemon
 from cogs.AstroDedicatedServer import AstroDedicatedServer
 from cogs.AstroLogging import AstroLogging
 from cogs.MultiConfig import MultiConfig
 from cogs.utils import AstroRequests
+from cogs.DetermineServerBuild import DetermineServerBuild
 
 from cogs.utils import ALVERSION
 
@@ -393,7 +394,7 @@ class AstroLauncher():
 
         config = MultiConfig()
         config.read_dict({"AstroLauncher": cleaned_config})
-        with open(self.launcherINI, 'w') as configfile:
+        with open(self.launcherINI, 'w', encoding='utf-8') as configfile:
             config.write(configfile)
 
     def overwrite_launcher_config(self, ovrDict):
@@ -418,7 +419,7 @@ class AstroLauncher():
             AstroLogging.logPrint("Attempting to validate Playfab Certs")
             playfabRequestCommand = ["powershell", '-executionpolicy', 'bypass', '-command',
                                      'Invoke-WebRequest -uri https://5ea1.playfabapi.com/ -UseBasicParsing']
-            with open(os.devnull, 'w') as tempf:
+            with open(os.devnull, 'w', encoding='utf-8') as tempf:
                 proc = subprocess.Popen(
                     playfabRequestCommand, stdout=tempf, stderr=tempf)
                 proc.communicate()
@@ -448,7 +449,7 @@ class AstroLauncher():
             if ntpath.exists(updateLocation):
                 upd_version = "0.0"
                 try:
-                    with open(ntpath.join(updateLocation, "build.version"), "r") as f:
+                    with open(ntpath.join(updateLocation, "build.version"), "r", encoding='utf-8') as f:
                         upd_version = (f.readline())[:-10]
                     if upd_version == latest_version:
                         update_downloaded = True
@@ -490,20 +491,22 @@ class AstroLauncher():
 
                 upd_version = "0.0"
                 try:
-                    with open(ntpath.join(updateLocation, "build.version"), "r") as f:
+                    with open(ntpath.join(updateLocation, "build.version"), "r", encoding='utf-8') as f:
                         upd_version = (f.readline())[:-10]
-                except:
+                except OSError:
                     pass
                 if upd_version == latest_version or (latest_version == "unknown"):
                     update_downloaded = True
 
             if update_downloaded:
-                open("update.p", "wb").write(b"transfer")
-                dir_util.copy_tree(updateLocation, self.astroPath)
-                open("update.p", "wb").write(b"complete")
+                with open("update.p", "wb") as f:
+                    f.write(b"transfer")
+                shutil.copytree(updateLocation, self.astroPath, dirs_exist_ok=True)
+                with open("update.p", "wb") as f:
+                    f.write(b"complete")
 
             cur_version = "0.0"
-            with open(ntpath.join(self.astroPath, "build.version"), "r") as f:
+            with open(ntpath.join(self.astroPath, "build.version"), "r", encoding='utf-8') as f:
                 cur_version = (f.readline())[:-10]
 
             if cur_version == latest_version or (latest_version == "unknown"):
@@ -530,66 +533,42 @@ class AstroLauncher():
         try:
             # print('here1')
             if not self.launcherConfig.UpdateOnServerRestart and serverStart:
-                return
-            else:
-                # print('here2')
-                needs_update = False
-                update_status = None
-                if ntpath.exists("update.p"):
-                    with open("update.p", "r") as f:
-                        update_status = f.read()
-                    if update_status != "completed":
-                        needs_update = True
-
-                # print('here3')
-                cur_version = "0.0"
-                try:
-                    with open(ntpath.join(self.astroPath, "build.version"), "r") as f:
-                        cur_version = (f.readline())[:-10]
-                except:
-                    pass
-                # print(cur_version)
-                # print('here4')
-                if cur_version == "0.0":
+                return False, "0.0"
+            # print('here2')
+            needs_update = False
+            update_status = None
+            if ntpath.exists("update.p"):
+                with open("update.p", "r", encoding='utf-8') as f:
+                    update_status = f.read()
+                if update_status != "complete":
                     needs_update = True
-                url = "https://astroservercheck.joejoetv.de/api/stats"
-                try:
-                    data = json.load(AstroRequests.get(url))
-                    # print(data)
 
-                    # print('here6')
-                    latest_version = data['stats']['latestVersion']
-                    if version.parse(latest_version) > version.parse(cur_version):
-                        needs_update = True
-                    if not ntpath.exists(ntpath.join(self.astroPath, "AstroServer.exe")):
-                        needs_update = True
-                    if needs_update:
-                        AstroLogging.logPrint(
-                            f"SERVER UPDATE AVAILABLE: {cur_version} -> {latest_version}", "warning")
-
-                        # print('here7')
-                        if self.launcherConfig.AutoUpdateServerSoftware and not check_only:
-                            self.update_server(latest_version)
-                        # print('here8')
-                        return True, latest_version
-                except Exception as e:
-                    print(e)
-                    AstroLogging.logPrint(
-                        "Couldn't get latest version number!", "warning")
-                    
-                    if self.launcherConfig.AutoUpdateServerSoftware and not check_only:
-                        self.update_server("unknown")
-                    
-                    with open(ntpath.join(self.astroPath, "build.version"), "r") as f:
-                        cur_version = (f.readline())[:-10]
-                    
-                    return True, cur_version
-
+            # print('here3')
             cur_version = "0.0"
-            with open(ntpath.join(self.astroPath, "build.version"), "r") as f:
-                cur_version = (f.readline())[:-10]
-            self.cur_server_version = cur_version
-            # print('here9')
+            try:
+                with open(ntpath.join(self.astroPath, "build.version"), "r", encoding='utf-8') as f:
+                    cur_version = (f.readline())[:-10]
+            except OSError:
+                pass
+
+            # Use new update determination
+            AstroLogging.logPrint(
+                    " Checking for AstroServer update", "info")
+            dbv = DetermineServerBuild(self.astroPath)
+            needs_update = dbv.updateOK()
+
+            if not ntpath.exists(ntpath.join(self.astroPath, "AstroServer.exe")):
+                needs_update = True
+            if needs_update:
+                AstroLogging.logPrint(
+                    f"SERVER UPDATE AVAILABLE: {dbv.getCurrentBuildID()} -> {dbv.getLatestBuildID()}", "warning")
+                if self.launcherConfig.AutoUpdateServerSoftware and not check_only:
+                    self.update_server(dbv.getLatestBuildID())
+                    with open(ntpath.join(self.astroPath, "build.version"), "r", encoding='utf-8') as f:
+                        cur_version = (f.readline())[:-10]
+                        self.cur_server_version = cur_version
+                return True, cur_version
+
         except Exception as e:
             print(e)
             AstroLogging.logPrint(
