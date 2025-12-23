@@ -59,6 +59,7 @@ class AstroDedicatedServer():
         self.oldServerStats = self.DSServerStats
         self.ipPortCombo = None
         self.process = None
+        self.gameServerProcess = None  # Track the actual SystemEraSoftworks process
         self.players = {}
         self.pakList = []
         self.stripPlayers = []
@@ -123,6 +124,50 @@ class AstroDedicatedServer():
         else:
             cmd = [ntpath.join(self.astroPath, "AstroServer.exe"), '-log']
         self.process = subprocess.Popen(cmd)
+        self.gameServerProcess = None  # Reset game server process tracking
+
+    def find_game_server_process(self):
+        """Find the actual SystemEraSoftworks game server process spawned by AstroServer.exe"""
+        try:
+            if self.process and self.process.pid:
+                parent = psutil.Process(self.process.pid)
+                children = parent.children(recursive=True)
+
+                for child in children:
+                    try:
+                        # Look for the SystemEraSoftworks process
+                        if 'systemera' in child.name().lower():
+                            self.gameServerProcess = child
+                            AstroLogging.logPrint(f"Found game server process: {child.pid} ({child.name()})", "debug")
+                            return child
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        pass
+        except Exception as e:
+            AstroLogging.logPrint(f"Error finding game server process: {e}", "debug")
+        return None
+
+    def is_server_running(self):
+        """Check if both the launcher process and the actual game server are running"""
+        # Check if main process is alive
+        if self.process is None or self.process.poll() is not None:
+            AstroLogging.logPrint("AstroServer.exe process has terminated", "debug")
+            return False
+
+        # Try to find game server if we don't have it yet
+        if self.gameServerProcess is None:
+            self.find_game_server_process()
+
+        # Check if game server process is alive
+        if self.gameServerProcess is not None:
+            try:
+                if not self.gameServerProcess.is_running():
+                    AstroLogging.logPrint("Game server process (SystemEraSoftworks) has terminated", "debug")
+                    return False
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                AstroLogging.logPrint("Game server process no longer exists", "debug")
+                return False
+
+        return True
 
     @staticmethod
     def convert_size(size_bytes):
@@ -388,7 +433,8 @@ class AstroDedicatedServer():
                     self.save_and_shutdown()
 
             # AstroLogging.logPrint("Server_loop section: 3", "debug")
-            if self.process.poll() is not None:
+            # Check if server processes are still running
+            if not self.is_server_running():
                 AstroLogging.logPrint(
                     "Server was closed. Restarting..")
                 return self.launcher.start_server()
@@ -590,12 +636,72 @@ class AstroDedicatedServer():
             self.deregister_all_server()
         except:
             pass
-        # Kill all child processes
+
+        # Kill all child processes recursively
         try:
-            for child in psutil.Process(self.process.pid).children():
-                child.kill()
-        except:
-            pass
+            if self.process and self.process.pid:
+                try:
+                    parent = psutil.Process(self.process.pid)
+                    # Get all descendants recursively
+                    children = parent.children(recursive=True)
+
+                    # Kill children first (bottom-up)
+                    for child in children:
+                        try:
+                            AstroLogging.logPrint(f"Killing child process: {child.pid} ({child.name()})", "debug")
+                            child.kill()
+                        except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+                            AstroLogging.logPrint(f"Could not kill child process {child.pid}: {e}", "debug")
+
+                    # Wait for children to die
+                    gone, alive = psutil.wait_procs(children, timeout=3)
+                    for p in alive:
+                        try:
+                            AstroLogging.logPrint(f"Force killing stubborn process: {p.pid}", "debug")
+                            p.kill()
+                        except (psutil.NoSuchProcess, psutil.AccessDenied):
+                            pass
+
+                    # Kill parent process
+                    try:
+                        parent.kill()
+                        parent.wait(timeout=3)
+                    except (psutil.NoSuchProcess, psutil.TimeoutExpired):
+                        pass
+
+                except psutil.NoSuchProcess:
+                    AstroLogging.logPrint("Main server process already dead", "debug")
+        except Exception as e:
+            AstroLogging.logPrint(f"Error killing server process tree: {e}", "warning")
+
+        # Fallback: Kill any lingering AstroServer or SystemEraSoftworks processes
+        try:
+            killed_any = False
+            for proc in psutil.process_iter(['pid', 'name', 'exe']):
+                try:
+                    proc_name = proc.info['name'].lower() if proc.info['name'] else ''
+                    proc_exe = proc.info['exe'].lower() if proc.info['exe'] else ''
+
+                    # Kill any Astroneer server related processes
+                    if ('astroserver' in proc_name or
+                        'systemera' in proc_name or
+                        'astroserver' in proc_exe):
+
+                        # Make sure it's related to this server path
+                        if self.astroPath.lower() in proc_exe or proc.info['exe'] is None:
+                            AstroLogging.logPrint(f"Killing lingering server process: {proc.info['pid']} ({proc.info['name']})", "debug")
+                            proc.kill()
+                            killed_any = True
+                except (psutil.NoSuchProcess, psutil.AccessDenied, AttributeError):
+                    pass
+
+            if killed_any:
+                time.sleep(1)  # Give processes time to die
+                AstroLogging.logPrint("Cleaned up lingering server processes", "debug")
+
+        except Exception as e:
+            AstroLogging.logPrint(f"Error during fallback process cleanup: {e}", "warning")
+
         try:
             self.setStatus("off")
         except:

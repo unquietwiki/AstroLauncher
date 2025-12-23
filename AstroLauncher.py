@@ -736,6 +736,10 @@ class AstroLauncher():
         AstroLogging.logPrint(
             f"Server ready! Took {round(elapsed,2)} seconds to register.", ovrDWHL=True)  # {self.DedicatedServer.LobbyID}
         self.DedicatedServer.status = "ready"
+
+        # Find and track the actual game server process
+        self.DedicatedServer.find_game_server_process()
+
         # AstroLogging.logPrint("Starting server_loop: 1", "debug")
         self.DedicatedServer.server_loop()
 
